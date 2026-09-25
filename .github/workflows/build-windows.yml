@@ -1,88 +1,67 @@
-name: Build Muzammil Online Service Windows Setup
+name: Build Muzammil Online Service PC
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
-
-permissions:
-  contents: read
+    branches:
+      - main
 
 jobs:
   build-windows:
     runs-on: windows-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Find Project ZIP
-        shell: powershell
-        run: |
-          $zip = Get-ChildItem -Path . -Recurse -Filter "Muzammil_Online_Service_PC_Full_Features.zip" | Select-Object -First 1
-          if (-not $zip) { Write-Host "Project ZIP not found"; Get-ChildItem -Recurse -Filter "*.zip"; exit 1 }
-          "ZIP_PATH=$($zip.FullName)" | Out-File $env:GITHUB_ENV -Append
-
-      - name: Extract Project
-        shell: powershell
-        run: |
-          Remove-Item pc_project -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory pc_project | Out-Null
-          Expand-Archive -Path $env:ZIP_PATH -DestinationPath pc_project -Force
-          $cpp = Get-ChildItem pc_project -Recurse -Filter main.cpp | Select-Object -First 1
-          if (-not $cpp) { Get-ChildItem pc_project -Recurse; exit 1 }
-          $root = $cpp.Directory.Parent.FullName
-          while (-not ((Test-Path "$root\python\pdf_to_jpg.py") -and (Test-Path "$root\installer\MuzammilOnlineService.iss"))) {
-            $parent = Split-Path $root -Parent
-            if ($parent -eq $root) { exit 1 }
-            $root = $parent
-          }
-          "ROOT=$root" | Out-File $env:GITHUB_ENV -Append
-          Write-Host "ROOT=$root"
-
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build Native C++
-        shell: powershell
-        run: |
-          Set-Location $env:ROOT
-          New-Item -ItemType Directory build -Force | Out-Null
-          cl.exe /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE src\main.cpp /Fe:"build\Muzammil Online Service.exe" /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib shell32.lib comdlg32.lib
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          if (-not (Test-Path "build\Muzammil Online Service.exe")) { exit 1 }
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Build Python PDF Engine
+      - name: Install dependencies
         shell: powershell
         run: |
-          Set-Location $env:ROOT
           python -m pip install --upgrade pip
-          pip install PyMuPDF pyinstaller
-          python -m py_compile python\pdf_to_jpg.py
-          pyinstaller --noconfirm --clean --onefile --name pdf_to_jpg python\pdf_to_jpg.py
-          Copy-Item dist\pdf_to_jpg.exe build\pdf_to_jpg.exe -Force
+          if (Test-Path requirements.txt) {
+            pip install -r requirements.txt
+          }
+          pip install pyinstaller
 
-      - name: Install Inno Setup
-        shell: powershell
-        run: choco install innosetup -y --no-progress
-
-      - name: Build Installer
+      - name: Check project
         shell: powershell
         run: |
-          Set-Location $env:ROOT
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\MuzammilOnlineService.iss
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          $setup = Get-ChildItem installer\installer_output -Filter *.exe | Select-Object -First 1
-          if (-not $setup) { exit 1 }
-          Copy-Item $setup.FullName "$env:GITHUB_WORKSPACE\Muzammil-Online-Service-Setup.exe" -Force
+          Write-Host "Project files:"
+          Get-ChildItem -Recurse -File |
+            Select-Object -First 100 FullName
 
-      - name: Upload Setup
+      - name: Test Python
+        shell: powershell
+        run: |
+          python -m py_compile main.py
+
+      - name: Build Windows EXE
+        shell: powershell
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --windowed `
+            --name "Muzammil Online Service" `
+            --onedir `
+            main.py
+
+      - name: Create portable ZIP
+        shell: powershell
+        run: |
+          Compress-Archive `
+            -Path "dist\Muzammil Online Service\*" `
+            -DestinationPath "Muzammil-Online-Service-PC-Windows.zip" `
+            -Force
+
+      - name: Upload Windows Application
         uses: actions/upload-artifact@v4
         with:
-          name: Muzammil-Online-Service-Windows-Setup
-          path: Muzammil-Online-Service-Setup.exe
+          name: Muzammil-Online-Service-PC-Windows
+          path: Muzammil-Online-Service-PC-Windows.zip
           if-no-files-found: error
