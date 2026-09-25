@@ -19,31 +19,59 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Find PC Project
+      - name: Find and Extract PC Project
         shell: powershell
         run: |
-          Write-Host "Searching for main.py..."
+          $zip = Get-ChildItem `
+            -Path $env:GITHUB_WORKSPACE `
+            -Filter "*.zip" `
+            -File |
+            Where-Object { $_.Name -notlike "*artifact*" } |
+            Select-Object -First 1
+
+          if (-not $zip) {
+            Write-Host "ERROR: PC project ZIP nahi mila."
+            exit 1
+          }
+
+          Write-Host "ZIP found:"
+          Write-Host $zip.FullName
+
+          $extract = Join-Path $env:GITHUB_WORKSPACE "pc_project"
+
+          if (Test-Path $extract) {
+            Remove-Item $extract -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $extract | Out-Null
+
+          Expand-Archive `
+            -Path $zip.FullName `
+            -DestinationPath $extract `
+            -Force
+
+          Write-Host "ZIP extracted."
 
           $main = Get-ChildItem `
-            -Path $env:GITHUB_WORKSPACE `
+            -Path $extract `
             -Recurse `
             -Filter "main.py" `
             -File |
             Select-Object -First 1
 
           if (-not $main) {
-            Write-Host "ERROR: main.py not found"
-            Get-ChildItem -Recurse -File |
+            Write-Host "ERROR: ZIP ke andar main.py nahi mila."
+            Get-ChildItem $extract -Recurse -File |
               Select-Object -First 200 FullName
             exit 1
           }
 
           $project = $main.Directory.FullName
 
-          Write-Host "main.py found:"
+          Write-Host "main.py:"
           Write-Host $main.FullName
 
-          Write-Host "Project directory:"
+          Write-Host "Project:"
           Write-Host $project
 
           "PROJECT_DIR=$project" >> $env:GITHUB_ENV
@@ -54,8 +82,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
 
-          if (Test-Path "$env:PROJECT_DIR\requirements.txt") {
-            pip install -r "$env:PROJECT_DIR\requirements.txt"
+          $requirements = Join-Path $env:PROJECT_DIR "requirements.txt"
+
+          if (Test-Path $requirements) {
+            pip install -r $requirements
           }
 
           pip install pyinstaller
@@ -89,26 +119,23 @@ jobs:
             Select-Object -First 1
 
           if (-not $exe) {
-            Write-Host "ERROR: EXE was not created"
+            Write-Host "ERROR: EXE create nahi hua."
             Get-ChildItem "$env:PROJECT_DIR\dist" -Recurse
             exit 1
           }
 
-          Write-Host "EXE created:"
+          Write-Host "EXE CREATED:"
           Write-Host $exe.FullName
 
       - name: Create Windows ZIP
         shell: powershell
         run: |
-          $dist = Join-Path "$env:PROJECT_DIR" "dist\Muzammil Online Service"
-
-          if (-not (Test-Path $dist)) {
-            Write-Host "ERROR: dist folder not found"
-            exit 1
-          }
+          $appFolder = Join-Path `
+            $env:PROJECT_DIR `
+            "dist\Muzammil Online Service"
 
           Compress-Archive `
-            -Path "$dist\*" `
+            -Path "$appFolder\*" `
             -DestinationPath "$env:GITHUB_WORKSPACE\Muzammil-Online-Service-PC-Windows.zip" `
             -Force
 
