@@ -1,4 +1,4 @@
-name: Build Muzammil Online Service PC
+name: Build Muzammil Online Service PC FINAL
 
 on:
   workflow_dispatch:
@@ -11,89 +11,97 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Find and Extract PC Project
+      - name: Find Project
         shell: powershell
         run: |
-          $zip = Get-ChildItem `
-            -Path $env:GITHUB_WORKSPACE `
-            -Filter "*.zip" `
-            -File |
-            Where-Object { $_.Name -notlike "*artifact*" } |
-            Select-Object -First 1
-
-          if (-not $zip) {
-            Write-Host "ERROR: PC project ZIP nahi mila."
-            exit 1
-          }
-
-          Write-Host "ZIP found:"
-          Write-Host $zip.FullName
-
-          $extract = Join-Path $env:GITHUB_WORKSPACE "pc_project"
-
-          if (Test-Path $extract) {
-            Remove-Item $extract -Recurse -Force
-          }
-
-          New-Item -ItemType Directory -Path $extract | Out-Null
-
-          Expand-Archive `
-            -Path $zip.FullName `
-            -DestinationPath $extract `
-            -Force
-
-          Write-Host "ZIP extracted."
-
           $main = Get-ChildItem `
-            -Path $extract `
+            -Path $env:GITHUB_WORKSPACE `
             -Recurse `
             -Filter "main.py" `
             -File |
             Select-Object -First 1
 
           if (-not $main) {
-            Write-Host "ERROR: ZIP ke andar main.py nahi mila."
-            Get-ChildItem $extract -Recurse -File |
+            Write-Host "main.py direct root mein nahi mila."
+
+            $zip = Get-ChildItem `
+              -Path $env:GITHUB_WORKSPACE `
+              -Recurse `
+              -Filter "*.zip" `
+              -File |
+              Select-Object -First 1
+
+            if ($zip) {
+              Write-Host "Project ZIP found: $($zip.FullName)"
+
+              $extract = Join-Path `
+                $env:GITHUB_WORKSPACE `
+                "pc_project"
+
+              New-Item -ItemType Directory `
+                -Force `
+                -Path $extract | Out-Null
+
+              Expand-Archive `
+                -Path $zip.FullName `
+                -DestinationPath $extract `
+                -Force
+            }
+          }
+
+          $main = Get-ChildItem `
+            -Path $env:GITHUB_WORKSPACE `
+            -Recurse `
+            -Filter "main.py" `
+            -File |
+            Select-Object -First 1
+
+          if (-not $main) {
+            Write-Host "ERROR: main.py nahi mila."
+            Get-ChildItem `
+              -Path $env:GITHUB_WORKSPACE `
+              -Recurse `
+              -File |
               Select-Object -First 200 FullName
             exit 1
           }
 
           $project = $main.Directory.FullName
 
-          Write-Host "main.py:"
-          Write-Host $main.FullName
-
-          Write-Host "Project:"
-          Write-Host $project
+          Write-Host "MAIN: $($main.FullName)"
+          Write-Host "PROJECT: $project"
 
           "PROJECT_DIR=$project" >> $env:GITHUB_ENV
-          "MAIN_FILE=$($main.FullName)" >> $env:GITHUB_ENV
 
       - name: Install Dependencies
         shell: powershell
         run: |
           python -m pip install --upgrade pip
 
-          $requirements = Join-Path $env:PROJECT_DIR "requirements.txt"
+          $requirements = Join-Path `
+            $env:PROJECT_DIR `
+            "requirements.txt"
 
           if (Test-Path $requirements) {
             pip install -r $requirements
           }
+          else {
+            pip install PySide6 PyMuPDF Pillow reportlab pyinstaller
+          }
 
-          pip install pyinstaller
-
-      - name: Test Python
+      - name: Python Syntax Test
         shell: powershell
         run: |
-          python -m py_compile "$env:MAIN_FILE"
+          python -m py_compile `
+            "$env:PROJECT_DIR\main.py"
 
       - name: Build Windows EXE
         shell: powershell
@@ -108,11 +116,11 @@ jobs:
             --name "Muzammil Online Service" `
             main.py
 
-      - name: Check EXE
+      - name: Verify EXE
         shell: powershell
         run: |
           $exe = Get-ChildItem `
-            -Path "$env:PROJECT_DIR\dist" `
+            "$env:PROJECT_DIR\dist" `
             -Recurse `
             -Filter "*.exe" `
             -File |
@@ -120,28 +128,27 @@ jobs:
 
           if (-not $exe) {
             Write-Host "ERROR: EXE create nahi hua."
-            Get-ChildItem "$env:PROJECT_DIR\dist" -Recurse
             exit 1
           }
 
           Write-Host "EXE CREATED:"
           Write-Host $exe.FullName
 
-      - name: Create Windows ZIP
+      - name: Package Windows Application
         shell: powershell
         run: |
-          $appFolder = Join-Path `
+          $folder = Join-Path `
             $env:PROJECT_DIR `
             "dist\Muzammil Online Service"
 
           Compress-Archive `
-            -Path "$appFolder\*" `
-            -DestinationPath "$env:GITHUB_WORKSPACE\Muzammil-Online-Service-PC-Windows.zip" `
+            -Path "$folder\*" `
+            -DestinationPath "$env:GITHUB_WORKSPACE\Muzammil-Online-Service-PC-FINAL.zip" `
             -Force
 
-      - name: Upload Windows Application
+      - name: Upload Final Windows App
         uses: actions/upload-artifact@v4
         with:
-          name: Muzammil-Online-Service-PC-Windows
-          path: Muzammil-Online-Service-PC-Windows.zip
+          name: Muzammil-Online-Service-PC-FINAL
+          path: Muzammil-Online-Service-PC-FINAL.zip
           if-no-files-found: error
