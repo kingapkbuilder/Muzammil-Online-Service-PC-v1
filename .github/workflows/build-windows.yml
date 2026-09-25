@@ -3,8 +3,7 @@ name: Build Muzammil Online Service Windows Setup
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -12,84 +11,43 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Find Native Project ZIP
+      - name: Find Project ZIP
         shell: powershell
         run: |
-          $zip = Get-ChildItem -Path . -Recurse -Filter "Muzammil_Online_Service_PC_Final_Windows_Project.zip" |
-            Select-Object -First 1
+          $zip = Get-ChildItem -Path . -Recurse -Filter "Muzammil_Online_Service_PC_Full_Features.zip" | Select-Object -First 1
+          if (-not $zip) { Write-Host "Project ZIP not found"; Get-ChildItem -Recurse -Filter "*.zip"; exit 1 }
+          "ZIP_PATH=$($zip.FullName)" | Out-File $env:GITHUB_ENV -Append
 
-          if (-not $zip) {
-            Write-Host "ERROR: Native project ZIP nahi mila."
-            Get-ChildItem -Path . -Recurse -Filter "*.zip"
-            exit 1
-          }
-
-          "PC_ZIP=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Found: $($zip.FullName)"
-
-      - name: Extract Native Project
+      - name: Extract Project
         shell: powershell
         run: |
-          if (Test-Path "pc_project") { Remove-Item "pc_project" -Recurse -Force }
-          New-Item -ItemType Directory -Path "pc_project" | Out-Null
-          Expand-Archive -Path "$env:PC_ZIP" -DestinationPath "pc_project" -Force
-
-          $main = Get-ChildItem -Path "pc_project" -Recurse -Filter "main.cpp" | Select-Object -First 1
-          if (-not $main) {
-            Write-Host "ERROR: main.cpp nahi mila."
-            Get-ChildItem "pc_project" -Recurse
-            exit 1
+          Remove-Item pc_project -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory pc_project | Out-Null
+          Expand-Archive -Path $env:ZIP_PATH -DestinationPath pc_project -Force
+          $cpp = Get-ChildItem pc_project -Recurse -Filter main.cpp | Select-Object -First 1
+          if (-not $cpp) { Get-ChildItem pc_project -Recurse; exit 1 }
+          $root = $cpp.Directory.Parent.FullName
+          while (-not ((Test-Path "$root\python\pdf_to_jpg.py") -and (Test-Path "$root\installer\MuzammilOnlineService.iss"))) {
+            $parent = Split-Path $root -Parent
+            if ($parent -eq $root) { exit 1 }
+            $root = $parent
           }
-
-          $root = $main.Directory.Parent.FullName
-          "PC_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Actual project root: $root"
-
-      - name: Verify Project
-        shell: powershell
-        run: |
-          $required = @(
-            "$env:PC_ROOT\src\main.cpp",
-            "$env:PC_ROOT\python\pdf_to_jpg.py",
-            "$env:PC_ROOT\installer\MuzammilOnlineService.iss"
-          )
-
-          foreach ($file in $required) {
-            if (-not (Test-Path $file)) {
-              Write-Host "ERROR: Missing $file"
-              exit 1
-            }
-          }
-          Write-Host "Project structure OK."
+          "ROOT=$root" | Out-File $env:GITHUB_ENV -Append
+          Write-Host "ROOT=$root"
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Clean Build
+      - name: Build Native C++
         shell: powershell
         run: |
-          $build = Join-Path $env:PC_ROOT "build"
-          $dist = Join-Path $env:PC_ROOT "dist"
-          $out = Join-Path $env:PC_ROOT "installer\installer_output"
-          if (Test-Path $build) { Remove-Item $build -Recurse -Force }
-          if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
-          if (Test-Path $out) { Remove-Item $out -Recurse -Force }
-          New-Item -ItemType Directory -Path $build -Force | Out-Null
-
-      - name: Build Native C++ Application
-        shell: powershell
-        run: |
-          Set-Location $env:PC_ROOT
-          cl.exe /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE `
-            "src\main.cpp" `
-            /Fe:"build\Muzammil Online Service.exe" `
-            /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib shell32.lib comdlg32.lib
-
+          Set-Location $env:ROOT
+          New-Item -ItemType Directory build -Force | Out-Null
+          cl.exe /nologo /std:c++17 /O2 /EHsc /DUNICODE /D_UNICODE src\main.cpp /Fe:"build\Muzammil Online Service.exe" /link /SUBSYSTEM:WINDOWS user32.lib gdi32.lib shell32.lib comdlg32.lib
           if ($LASTEXITCODE -ne 0) { exit 1 }
           if (-not (Test-Path "build\Muzammil Online Service.exe")) { exit 1 }
 
@@ -98,54 +56,33 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Python Dependencies
-        shell: powershell
-        run: |
-          python -m pip install --upgrade pip
-          pip install PyMuPDF pyinstaller
-
       - name: Build Python PDF Engine
         shell: powershell
         run: |
-          Set-Location $env:PC_ROOT
-          python -m py_compile "python\pdf_to_jpg.py"
-          pyinstaller --noconfirm --clean --onefile --name "pdf_to_jpg" "python\pdf_to_jpg.py"
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          if (-not (Test-Path "dist\pdf_to_jpg.exe")) { exit 1 }
-          Copy-Item "dist\pdf_to_jpg.exe" "build\pdf_to_jpg.exe" -Force
+          Set-Location $env:ROOT
+          python -m pip install --upgrade pip
+          pip install PyMuPDF pyinstaller
+          python -m py_compile python\pdf_to_jpg.py
+          pyinstaller --noconfirm --clean --onefile --name pdf_to_jpg python\pdf_to_jpg.py
+          Copy-Item dist\pdf_to_jpg.exe build\pdf_to_jpg.exe -Force
 
       - name: Install Inno Setup
         shell: powershell
-        run: |
-          choco install innosetup -y --no-progress
-          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { exit 1 }
+        run: choco install innosetup -y --no-progress
 
-      - name: Build Windows Installer
+      - name: Build Installer
         shell: powershell
         run: |
-          Set-Location $env:PC_ROOT
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\MuzammilOnlineService.iss"
+          Set-Location $env:ROOT
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\MuzammilOnlineService.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
-
-      - name: Verify Setup
-        shell: powershell
-        run: |
-          Set-Location $env:PC_ROOT
-          $setup = Get-ChildItem "installer\installer_output" -Filter "*.exe" | Select-Object -First 1
-          if (-not $setup) { Get-ChildItem "installer" -Recurse; exit 1 }
+          $setup = Get-ChildItem installer\installer_output -Filter *.exe | Select-Object -First 1
+          if (-not $setup) { exit 1 }
           Copy-Item $setup.FullName "$env:GITHUB_WORKSPACE\Muzammil-Online-Service-Setup.exe" -Force
-          Get-Item "$env:GITHUB_WORKSPACE\Muzammil-Online-Service-Setup.exe" | Format-List Name,Length,FullName
 
-      - name: Upload Windows Setup
+      - name: Upload Setup
         uses: actions/upload-artifact@v4
         with:
           name: Muzammil-Online-Service-Windows-Setup
           path: Muzammil-Online-Service-Setup.exe
-          if-no-files-found: error
-
-      - name: Upload Native EXE
-        uses: actions/upload-artifact@v4
-        with:
-          name: Muzammil-Online-Service-Native-EXE
-          path: ${{ env.PC_ROOT }}\build\Muzammil Online Service.exe
           if-no-files-found: error
