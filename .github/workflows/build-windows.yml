@@ -19,44 +19,97 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Find PC Project
+        shell: powershell
+        run: |
+          Write-Host "Searching for main.py..."
+
+          $main = Get-ChildItem `
+            -Path $env:GITHUB_WORKSPACE `
+            -Recurse `
+            -Filter "main.py" `
+            -File |
+            Select-Object -First 1
+
+          if (-not $main) {
+            Write-Host "ERROR: main.py not found"
+            Get-ChildItem -Recurse -File |
+              Select-Object -First 200 FullName
+            exit 1
+          }
+
+          $project = $main.Directory.FullName
+
+          Write-Host "main.py found:"
+          Write-Host $main.FullName
+
+          Write-Host "Project directory:"
+          Write-Host $project
+
+          "PROJECT_DIR=$project" >> $env:GITHUB_ENV
+          "MAIN_FILE=$($main.FullName)" >> $env:GITHUB_ENV
+
+      - name: Install Dependencies
         shell: powershell
         run: |
           python -m pip install --upgrade pip
-          if (Test-Path requirements.txt) {
-            pip install -r requirements.txt
-          }
-          pip install pyinstaller
 
-      - name: Check project
-        shell: powershell
-        run: |
-          Write-Host "Project files:"
-          Get-ChildItem -Recurse -File |
-            Select-Object -First 100 FullName
+          if (Test-Path "$env:PROJECT_DIR\requirements.txt") {
+            pip install -r "$env:PROJECT_DIR\requirements.txt"
+          }
+
+          pip install pyinstaller
 
       - name: Test Python
         shell: powershell
         run: |
-          python -m py_compile main.py
+          python -m py_compile "$env:MAIN_FILE"
 
       - name: Build Windows EXE
         shell: powershell
         run: |
+          Set-Location "$env:PROJECT_DIR"
+
           pyinstaller `
             --noconfirm `
             --clean `
             --windowed `
-            --name "Muzammil Online Service" `
             --onedir `
+            --name "Muzammil Online Service" `
             main.py
 
-      - name: Create portable ZIP
+      - name: Check EXE
         shell: powershell
         run: |
+          $exe = Get-ChildItem `
+            -Path "$env:PROJECT_DIR\dist" `
+            -Recurse `
+            -Filter "*.exe" `
+            -File |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            Write-Host "ERROR: EXE was not created"
+            Get-ChildItem "$env:PROJECT_DIR\dist" -Recurse
+            exit 1
+          }
+
+          Write-Host "EXE created:"
+          Write-Host $exe.FullName
+
+      - name: Create Windows ZIP
+        shell: powershell
+        run: |
+          $dist = Join-Path "$env:PROJECT_DIR" "dist\Muzammil Online Service"
+
+          if (-not (Test-Path $dist)) {
+            Write-Host "ERROR: dist folder not found"
+            exit 1
+          }
+
           Compress-Archive `
-            -Path "dist\Muzammil Online Service\*" `
-            -DestinationPath "Muzammil-Online-Service-PC-Windows.zip" `
+            -Path "$dist\*" `
+            -DestinationPath "$env:GITHUB_WORKSPACE\Muzammil-Online-Service-PC-Windows.zip" `
             -Force
 
       - name: Upload Windows Application
