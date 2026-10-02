@@ -1,154 +1,45 @@
-name: Build Muzammil Online Service PC FINAL
+name: Build Windows Desktop EXE Setup
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [ main, master ]
+  workflow_dispatch:
+  release:
+    types: [ published ]
 
 jobs:
   build-windows:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-
-      - name: Find Project
-        shell: powershell
-        run: |
-          $main = Get-ChildItem `
-            -Path $env:GITHUB_WORKSPACE `
-            -Recurse `
-            -Filter "main.py" `
-            -File |
-            Select-Object -First 1
-
-          if (-not $main) {
-            Write-Host "main.py direct root mein nahi mila."
-
-            $zip = Get-ChildItem `
-              -Path $env:GITHUB_WORKSPACE `
-              -Recurse `
-              -Filter "*.zip" `
-              -File |
-              Select-Object -First 1
-
-            if ($zip) {
-              Write-Host "Project ZIP found: $($zip.FullName)"
-
-              $extract = Join-Path `
-                $env:GITHUB_WORKSPACE `
-                "pc_project"
-
-              New-Item -ItemType Directory `
-                -Force `
-                -Path $extract | Out-Null
-
-              Expand-Archive `
-                -Path $zip.FullName `
-                -DestinationPath $extract `
-                -Force
-            }
-          }
-
-          $main = Get-ChildItem `
-            -Path $env:GITHUB_WORKSPACE `
-            -Recurse `
-            -Filter "main.py" `
-            -File |
-            Select-Object -First 1
-
-          if (-not $main) {
-            Write-Host "ERROR: main.py nahi mila."
-            Get-ChildItem `
-              -Path $env:GITHUB_WORKSPACE `
-              -Recurse `
-              -File |
-              Select-Object -First 200 FullName
-            exit 1
-          }
-
-          $project = $main.Directory.FullName
-
-          Write-Host "MAIN: $($main.FullName)"
-          Write-Host "PROJECT: $project"
-
-          "PROJECT_DIR=$project" >> $env:GITHUB_ENV
+          node-version: 20
+          cache: 'npm'
 
       - name: Install Dependencies
-        shell: powershell
         run: |
-          python -m pip install --upgrade pip
+          npm install
+          npm install --save-dev electron electron-packager
 
-          $requirements = Join-Path `
-            $env:PROJECT_DIR `
-            "requirements.txt"
+      - name: Build Web Application Assets
+        run: npm run build
 
-          if (Test-Path $requirements) {
-            pip install -r $requirements
-          }
-          else {
-            pip install PySide6 PyMuPDF Pillow reportlab pyinstaller
-          }
-
-      - name: Python Syntax Test
-        shell: powershell
+      - name: Package Windows .EXE Application
         run: |
-          python -m py_compile `
-            "$env:PROJECT_DIR\main.py"
+          npx electron-packager . "Muzammil Online service pc" --platform=win32 --arch=x64 --out=dist-exe --overwrite --icon=public/favicon.ico
 
-      - name: Build Windows EXE
-        shell: powershell
+      - name: Compress Executable Folder to ZIP
         run: |
-          Set-Location "$env:PROJECT_DIR"
+          Compress-Archive -Path "dist-exe\Muzammil Online service pc-win32-x64\*" -DestinationPath "Muzammil-Online-Service-Windows-x64.zip"
 
-          pyinstaller `
-            --noconfirm `
-            --clean `
-            --windowed `
-            --onedir `
-            --name "Muzammil Online Service" `
-            main.py
-
-      - name: Verify EXE
-        shell: powershell
-        run: |
-          $exe = Get-ChildItem `
-            "$env:PROJECT_DIR\dist" `
-            -Recurse `
-            -Filter "*.exe" `
-            -File |
-            Select-Object -First 1
-
-          if (-not $exe) {
-            Write-Host "ERROR: EXE create nahi hua."
-            exit 1
-          }
-
-          Write-Host "EXE CREATED:"
-          Write-Host $exe.FullName
-
-      - name: Package Windows Application
-        shell: powershell
-        run: |
-          $folder = Join-Path `
-            $env:PROJECT_DIR `
-            "dist\Muzammil Online Service"
-
-          Compress-Archive `
-            -Path "$folder\*" `
-            -DestinationPath "$env:GITHUB_WORKSPACE\Muzammil-Online-Service-PC-FINAL.zip" `
-            -Force
-
-      - name: Upload Final Windows App
+      - name: Upload Windows EXE Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Muzammil-Online-Service-PC-FINAL
-          path: Muzammil-Online-Service-PC-FINAL.zip
-          if-no-files-found: error
+          name: Muzammil-Online-Service-Windows-x64
+          path: Muzammil-Online-Service-Windows-x64.zip
+          retention-days: 30
