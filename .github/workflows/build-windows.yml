@@ -20,17 +20,24 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Dependencies
+      - name: Auto-Detect Files & Install Dependencies
         run: |
+          Get-ChildItem -Directory | ForEach-Object {
+            if (Test-Path "$($_.FullName)\package.json") {
+              Write-Host "Syncing subfolder files..."
+              Copy-Item -Path "$($_.FullName)\*" -Destination "." -Recurse -Force
+            }
+          }
           npm install --legacy-peer-deps
-          npm install --save-dev electron electron-packager
+          npm install --save-dev electron electron-packager --legacy-peer-deps
 
       - name: Build Web Application Assets
-        run: npm run build
+        run: |
+          npx vite build
 
       - name: Package Windows .EXE Application
         run: |
-          npx electron-packager . "Muzammil Online service pc" --platform=win32 --arch=x64 --out=dist-exe --overwrite --icon=public/favicon.ico
+          npx electron-packager . "Muzammil Online service pc" --platform=win32 --arch=x64 --out=dist-exe --overwrite
 
       - name: Compress Executable Folder to ZIP
         run: |
@@ -42,11 +49,3 @@ jobs:
           name: Muzammil-Online-Service-Windows-x64
           path: Muzammil-Online-Service-Windows-x64.zip
           retention-days: 30
-
-      - name: Upload to GitHub Release (If Tagged)
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Muzammil-Online-Service-Windows-x64.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
