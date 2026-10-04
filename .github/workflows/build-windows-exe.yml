@@ -7,6 +7,9 @@ on:
   release:
     types: [ published ]
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -27,7 +30,7 @@ jobs:
             Write-Host "Extracting $($_.Name)..."
             Expand-Archive -Path $_.FullName -DestinationPath . -Force
           }
-          Get-ChildItem -Directory | ForEach-Object {
+          Get-ChildItem -Directory | Where-Object { $_.Name -notin @('.git', '.github', 'node_modules', 'dist', 'dist-exe') } | ForEach-Object {
             if (Test-Path "$($_.FullName)\package.json") {
               Write-Host "Moving files from $($_.Name) to root..."
               Copy-Item -Path "$($_.FullName)\*" -Destination . -Recurse -Force
