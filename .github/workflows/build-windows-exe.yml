@@ -21,20 +21,18 @@ jobs:
           node-version: 20
 
       - name: Extract ZIP & Prepare Workspace (If repo contains uploaded ZIP)
-        shell: bash
+        shell: pwsh
         run: |
-          shopt -s nullglob
-          for f in *.zip; do
-            echo "Auto-extracting: $f..."
-            unzip -o "$f" || true
-          done
-
-          for dir in */; do
-            if [ -f "${dir}package.json" ]; then
-              echo "Moving ${dir} to root..."
-              cp -rf "${dir}"* . 2>/dev/null || true
-            fi
-          done
+          Get-ChildItem -Filter *.zip | ForEach-Object {
+            Write-Host "Extracting $($_.Name)..."
+            Expand-Archive -Path $_.FullName -DestinationPath . -Force
+          }
+          Get-ChildItem -Directory | ForEach-Object {
+            if (Test-Path "$($_.FullName)\package.json") {
+              Write-Host "Moving files from $($_.Name) to root..."
+              Copy-Item -Path "$($_.FullName)\*" -Destination . -Recurse -Force
+            }
+          }
 
       - name: Install Dependencies
         run: |
@@ -50,11 +48,9 @@ jobs:
           npx electron-packager . "Muzammil Online service pc" --platform=win32 --arch=x64 --out=dist-exe --overwrite --prune=true
 
       - name: Compress Executable Folder to ZIP
-        shell: bash
+        shell: pwsh
         run: |
-          cd dist-exe
-          zip -r ../Muzammil-Online-Service-Windows-x64-v3.zip "Muzammil Online service pc-win32-x64"
-          cd ..
+          Compress-Archive -Path "dist-exe\Muzammil Online service pc-win32-x64\*" -DestinationPath "Muzammil-Online-Service-Windows-x64-v3.zip" -Force
 
       - name: Upload Windows EXE Artifact
         uses: actions/upload-artifact@v4
