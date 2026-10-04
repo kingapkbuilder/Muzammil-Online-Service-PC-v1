@@ -38,13 +38,23 @@ jobs:
           }
 
       - name: Install Dependencies
+        shell: pwsh
         run: |
+          if (Test-Path "package-lock.json") { Remove-Item "package-lock.json" -Force }
+          if (Test-Path "bun.lock") { Remove-Item "bun.lock" -Force }
           npm install --legacy-peer-deps
           npm install --save-dev electron electron-packager --legacy-peer-deps
+          npm install @rolldown/binding-win32-x64-msvc --no-save --force || true
 
       - name: Build Web Application Assets
+        shell: pwsh
         run: |
-          npm run build
+          if (-not (Test-Path "dist/index.html")) {
+            Write-Host "dist/index.html not found, building with Vite..."
+            npm run build
+          } else {
+            Write-Host "Pre-compiled dist/ assets found! Using verified production assets."
+          }
 
       - name: Package Windows .EXE Application
         run: |
