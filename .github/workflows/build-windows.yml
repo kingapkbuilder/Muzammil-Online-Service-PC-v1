@@ -3,7 +3,7 @@ name: Build Windows Desktop EXE Setup
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:
+  workflow_dispatch: # Manual 1-Click Run from GitHub Actions tab
   release:
     types: [ published ]
 
@@ -20,32 +20,53 @@ jobs:
         with:
           node-version: 20
 
-      - name: Auto-Detect Files & Install Dependencies
+      - name: Extract ZIP & Prepare Workspace (If repo contains uploaded ZIP)
+        shell: bash
         run: |
-          Get-ChildItem -Directory | ForEach-Object {
-            if (Test-Path "$($_.FullName)\package.json") {
-              Write-Host "Syncing subfolder files..."
-              Copy-Item -Path "$($_.FullName)\*" -Destination "." -Recurse -Force
-            }
-          }
+          shopt -s nullglob
+          for f in *.zip; do
+            echo "Auto-extracting: $f..."
+            unzip -o "$f" || true
+          done
+
+          for dir in */; do
+            if [ -f "${dir}package.json" ]; then
+              echo "Moving ${dir} to root..."
+              cp -rf "${dir}"* . 2>/dev/null || true
+            fi
+          done
+
+      - name: Install Dependencies
+        run: |
           npm install --legacy-peer-deps
           npm install --save-dev electron electron-packager --legacy-peer-deps
 
       - name: Build Web Application Assets
         run: |
-          npx vite build
+          npm run build
 
       - name: Package Windows .EXE Application
         run: |
-          npx electron-packager . "Muzammil Online service pc" --platform=win32 --arch=x64 --out=dist-exe --overwrite
+          npx electron-packager . "Muzammil Online service pc" --platform=win32 --arch=x64 --out=dist-exe --overwrite --prune=true
 
       - name: Compress Executable Folder to ZIP
+        shell: bash
         run: |
-          Compress-Archive -Path "dist-exe\Muzammil Online service pc-win32-x64\*" -DestinationPath "Muzammil-Online-Service-Windows-x64.zip"
+          cd dist-exe
+          zip -r ../Muzammil-Online-Service-Windows-x64-v3.zip "Muzammil Online service pc-win32-x64"
+          cd ..
 
       - name: Upload Windows EXE Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Muzammil-Online-Service-Windows-x64
-          path: Muzammil-Online-Service-Windows-x64.zip
+          name: Muzammil-Online-Service-Windows-x64-v3
+          path: Muzammil-Online-Service-Windows-x64-v3.zip
           retention-days: 30
+
+      - name: Upload to GitHub Release (If Tagged)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Muzammil-Online-Service-Windows-x64-v3.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
